@@ -88,14 +88,7 @@ export function ContactList({
                 <p className="mt-1 text-xs font-medium text-indigo-700">Score: {Math.round(contact.score)}/100</p>
               )}
               {contact.reason && <p className="mt-1 text-xs text-slate-500">{contact.reason}</p>}
-              {typeof contact.confidence === 'number' && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Discovery confidence: {Math.round(contact.confidence * 100)}%
-                </p>
-              )}
-              {contact.search_hint && (
-                <p className="mt-1 text-xs text-slate-500">Signal: {contact.search_hint}</p>
-              )}
+              {/* Keep card focused on action, not internal extraction diagnostics. */}
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {contact.linkedin_url && (
                   <a
