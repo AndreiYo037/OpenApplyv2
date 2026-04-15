@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserProfile(BaseModel):
@@ -22,17 +22,19 @@ class JobInput(BaseModel):
 class Contact(BaseModel):
     name: str
     role: str
-    linkedin_url: Optional[str] = None
-    email: Optional[str] = None
-    relevance_score: Optional[float] = None
+    score: float
+    reason: str
+
+
+class ScoreBreakdown(BaseModel):
+    cv_match: dict
+    contact_components: dict = Field(default_factory=dict)
 
 
 class FinalOutput(BaseModel):
-    title: str
-    company: str
-    job_fit: float
-    contact_score: float
-    final_score: float
+    final_score: int
+    cv_score: float
+    contact_quality: float
     contacts: List[Contact]
-    decision: str
-    action_plan: str
+    message: str
+    score_breakdown: ScoreBreakdown

@@ -1,4 +1,4 @@
-"""LLM-powered contact ranking service."""
+"""LLM-assisted contact enrichment and ranking."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import json
 import os
 from typing import Any, Dict, List
 from urllib import error, request
+
+from app.services.contact_scorer import score_contact
 
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
@@ -25,99 +27,70 @@ def _normalize_contact(contact: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _fallback_rank_contacts(job: Dict[str, Any], contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    role = str(job.get("title", "")).lower()
+def _heuristic_enrichment(job_intent: Dict[str, Any], contact: Dict[str, Any]) -> Dict[str, Any]:
+    role = str(contact.get("role", "")).lower()
+    hint = str(contact.get("search_hint", "")).lower()
+    domain = str(job_intent.get("domain", "")).lower()
+    merged = f"{role} {hint}"
 
-    def score(contact: Dict[str, Any]) -> float:
-        base = float(contact.get("confidence", 0.0) or 0.0)
-        role_text = str(contact.get("role", "")).lower()
-        if role and role in role_text:
-            base += 0.2
-        if contact.get("linkedin_url"):
-            base += 0.15
-        if contact.get("email"):
-            base += 0.1
-        if any(word in role_text for word in ("recruiter", "hiring manager", "manager", "lead")):
-            base += 0.1
-        return min(base, 1.0)
+    if domain and domain in merged:
+        domain_match = "exact"
+    elif any(token in merged for token in ("software", "data", "analyst", "business", "product", "engineer")):
+        domain_match = "related"
+    else:
+        domain_match = "weak"
 
-    ranked = []
-    for contact in contacts:
-        c = _normalize_contact(contact)
-        relevance = round(score(c), 4)
-        c["relevance_score"] = relevance
-        c["reason"] = "Ranked by confidence, role alignment, and reachable contact signals."
-        ranked.append(c)
+    if any(token in role for token in ("ceo", "cto", "cfo", "chief", "founder")):
+        seniority = "c_level"
+    elif any(token in role for token in ("vp", "vice president", "director", "head")):
+        seniority = "senior_leadership"
+    elif any(token in role for token in ("junior", "intern", "associate")):
+        seniority = "junior"
+    else:
+        seniority = "mid"
 
-    ranked.sort(key=lambda x: float(x.get("relevance_score", 0.0)), reverse=True)
-    return ranked[:5]
+    singapore_based = "singapore" in merged or "sg.linkedin.com" in str(contact.get("linkedin_url", "")).lower()
+    hiring_activity = any(token in merged for token in ("hiring", "talent", "recruit", "internship"))
 
-
-def _extract_json(content: str) -> Any:
-    text = (content or "").strip()
-    if not text:
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("[")
-        end = text.rfind("]")
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                return None
-    return None
+    return {
+        "domain_match": domain_match,
+        "seniority_bucket": seniority,
+        "singapore_based": singapore_based,
+        "hiring_activity": hiring_activity,
+    }
 
 
-def _call_openai_ranker(job: Dict[str, Any], contacts: List[Dict[str, Any]]) -> Any:
+def _enrich_contacts_with_openai(job_intent: Dict[str, Any], contacts: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not configured")
+        return {}
 
-    system_prompt = (
-        "You rank hiring outreach contacts for one job.\n"
-        "Return ONLY a JSON array with up to 5 contacts, sorted best to worst.\n"
-        "Each item must include:\n"
-        "{\n"
-        '  "name": str,\n'
-        '  "role": str,\n'
-        '  "company": str,\n'
-        '  "source": str,\n'
-        '  "profile_url": str|null,\n'
-        '  "linkedin_url": str|null,\n'
-        '  "email": str|null,\n'
-        '  "confidence": float,\n'
-        '  "search_hint": str,\n'
-        '  "relevance_score": float,\n'
-        '  "reason": str\n'
-        "}\n"
-        "Rules:\n"
-        "- Prioritize recruiters, hiring managers, and role-adjacent team members.\n"
-        "- Prefer strong company/role matches and reachable contacts.\n"
-        "- relevance_score must be between 0 and 1.\n"
-        "- Output valid JSON only."
-    )
-
-    user_payload = {
-        "job": {
-            "title": job.get("title"),
-            "company": job.get("company"),
-            "skills": job.get("skills", []),
-            "keywords": job.get("keywords", []),
-        },
-        "contacts": contacts,
+    system_prompt = """You enrich contact metadata for internship outreach scoring.
+Return STRICT JSON:
+{
+  "contacts": [
+    {
+      "name": string,
+      "domain_match": "exact" | "related" | "weak",
+      "seniority_bucket": "mid" | "junior" | "senior_leadership" | "c_level",
+      "singapore_based": boolean,
+      "hiring_activity": boolean
     }
-
+  ]
+}
+Rules:
+- Infer based only on provided role/title/snippet data.
+- Keep the contact name exactly as provided when possible.
+"""
     body = {
         "model": os.getenv("OPENAI_PARSER_MODEL", "gpt-4o-mini"),
-        "temperature": 0.1,
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(user_payload)},
+            {"role": "user", "content": json.dumps({"job_intent": job_intent, "contacts": contacts})},
         ],
     }
-
     req = request.Request(
         OPENAI_API_URL,
         data=json.dumps(body).encode("utf-8"),
@@ -127,80 +100,55 @@ def _call_openai_ranker(job: Dict[str, Any], contacts: List[Dict[str, Any]]) -> 
         },
         method="POST",
     )
-
     try:
         with request.urlopen(req, timeout=30) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except error.HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"OpenAI API HTTP error: {exc.code} {raw}") from exc
-    except Exception as exc:
-        raise RuntimeError(f"OpenAI API call failed: {exc}") from exc
+        choices = payload.get("choices", [])
+        if not choices:
+            return {}
+        content = str(choices[0].get("message", {}).get("content", "")).strip()
+        parsed = json.loads(content) if content else {}
+    except (error.HTTPError, ValueError, json.JSONDecodeError, Exception):
+        return {}
 
-    choices = payload.get("choices", [])
-    if not choices:
-        raise RuntimeError("OpenAI API returned no choices")
-
-    content = choices[0].get("message", {}).get("content", "")
-    parsed = _extract_json(content)
-    if parsed is None:
-        raise RuntimeError("Failed to parse ranked contact JSON")
-    return parsed
-
-
-def _normalize_ranked_output(raw: Any, fallback: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    if not isinstance(raw, list):
-        return fallback
-
-    normalized: List[Dict[str, Any]] = []
-    for item in raw:
+    enriched: Dict[str, Dict[str, Any]] = {}
+    for item in parsed.get("contacts", []):
         if not isinstance(item, dict):
             continue
-        name = str(item.get("name", "")).strip()
-        role = str(item.get("role", "")).strip()
-        if not name or not role:
+        name = str(item.get("name", "")).strip().lower()
+        if not name:
             continue
-
-        relevance_raw = item.get("relevance_score", 0.0)
-        try:
-            relevance = max(0.0, min(float(relevance_raw), 1.0))
-        except (TypeError, ValueError):
-            relevance = 0.0
-
-        normalized.append(
-            {
-                "name": name,
-                "role": role,
-                "company": str(item.get("company", "Unknown")).strip() or "Unknown",
-                "source": str(item.get("source", "")).strip(),
-                "profile_url": item.get("profile_url"),
-                "linkedin_url": item.get("linkedin_url"),
-                "email": item.get("email"),
-                "confidence": float(item.get("confidence", 0.0) or 0.0),
-                "search_hint": str(item.get("search_hint", "")).strip(),
-                "relevance_score": round(relevance, 4),
-                "reason": str(item.get("reason", "")).strip()
-                or "Selected for role and company relevance.",
-            }
-        )
-
-    if not normalized:
-        return fallback
-
-    normalized.sort(key=lambda x: float(x.get("relevance_score", 0.0)), reverse=True)
-    return normalized[:5]
+        enriched[name] = {
+            "domain_match": str(item.get("domain_match", "weak")).strip().lower(),
+            "seniority_bucket": str(item.get("seniority_bucket", "mid")).strip().lower(),
+            "singapore_based": bool(item.get("singapore_based")),
+            "hiring_activity": bool(item.get("hiring_activity")),
+        }
+    return enriched
 
 
-def rank_contacts(job: Dict[str, Any], contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Rank top contacts using LLM with a deterministic fallback."""
+def rank_contacts(job_intent: Dict[str, Any], contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Enrich and rank contacts by continuous CONTACT_SCORE (0-100)."""
     if not contacts:
         return []
 
     safe_contacts = [_normalize_contact(c) for c in contacts if isinstance(c, dict)]
-    fallback = _fallback_rank_contacts(job, safe_contacts)
+    llm_enrichment = _enrich_contacts_with_openai(job_intent, safe_contacts)
 
-    try:
-        raw_ranked = _call_openai_ranker(job, safe_contacts)
-        return _normalize_ranked_output(raw_ranked, fallback)
-    except Exception:
-        return fallback
+    ranked: List[Dict[str, Any]] = []
+    for contact in safe_contacts:
+        key = str(contact.get("name", "")).strip().lower()
+        enrichment = llm_enrichment.get(key) or _heuristic_enrichment(job_intent, contact)
+        scored = score_contact(contact, job_intent=job_intent, enrichment=enrichment)
+        ranked.append(
+            {
+                **contact,
+                "score": scored["score"],
+                "reason": scored["reason"],
+                "contact_components": scored["components"],
+                "enrichment": enrichment,
+            }
+        )
+
+    ranked.sort(key=lambda item: float(item.get("score", 0.0) or 0.0), reverse=True)
+    return ranked[:10]
