@@ -10,6 +10,9 @@ type EvaluationResult = {
   job_fit: number
   contact_score: number
   action_plan: string
+  actionable?: boolean
+  discard_reason?: string | null
+  company_signals?: string[]
   decision?: string
   contacts: ContactItem[]
   [key: string]: unknown
@@ -105,11 +108,34 @@ function App() {
               </p>
             ) : (
               <div className="space-y-4">
+                <div
+                  className={`rounded-lg border p-3 text-sm ${
+                    result.actionable === false
+                      ? 'border-amber-300 bg-amber-50 text-amber-900'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                  }`}
+                >
+                  {result.actionable === false
+                    ? 'Low-confidence opportunity: weak fit or low reliability contacts. Review score and outreach carefully.'
+                    : 'Actionable opportunity: strong enough fit with reliable contact coverage.'}
+                </div>
                 <ScoreCard
                   finalScore={result.final_score}
                   jobFit={result.job_fit}
                   contactScore={result.contact_score}
                 />
+                {Array.isArray(result.company_signals) && result.company_signals.length > 0 && (
+                  <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
+                      Singapore Company Signals
+                    </h3>
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-slate-700">
+                      {result.company_signals.slice(0, 4).map((signal) => (
+                        <li key={signal}>{signal}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
                 <ContactList contacts={result.contacts ?? []} />
                 <StrategyBox
                   actionPlan={result.action_plan ?? 'No action plan returned.'}

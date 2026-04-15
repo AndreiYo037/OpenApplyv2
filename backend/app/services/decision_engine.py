@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from app.services.company_intel import get_company_intel
 from app.services.contact_merger import merge_contacts
 from app.services.contact_ranker import rank_contacts
 from app.services.contact_scorer import compute_contact_score
@@ -13,6 +14,9 @@ from app.services.job_matcher import compute_job_fit
 from app.services.job_parser import parse_job_text
 from app.services.strategy_generator import generate_strategy
 
+MIN_ACTIONABLE_JOB_FIT = 0.12
+MIN_RELIABLE_CONTACT_CONFIDENCE = 0.55
+
 
 def _decision_label(final_score: float) -> str:
     if final_score > 0.75:
@@ -20,6 +24,12 @@ def _decision_label(final_score: float) -> str:
     if final_score >= 0.5:
         return "consider"
     return "not_recommended"
+
+
+def _is_reliable_contact(contact: Dict[str, Any]) -> bool:
+    has_reach_channel = bool(contact.get("linkedin_url") or contact.get("email"))
+    confidence = float(contact.get("confidence", 0.0) or 0.0)
+    return has_reach_channel and confidence >= MIN_RELIABLE_CONTACT_CONFIDENCE
 
 
 def evaluate_job(job_text: str, cv_text: str) -> Dict[str, Any]:
@@ -36,11 +46,15 @@ def evaluate_job(job_text: str, cv_text: str) -> Dict[str, Any]:
     contacts = merge_contacts(job.get("recruiter_contacts", []), scraped_contacts, company, title)
     contact_score = compute_contact_score(contacts)
     ranked_contacts = rank_contacts(job, contacts)
+    reliable_contacts = [item for item in ranked_contacts if _is_reliable_contact(item)]
+    company_intel = get_company_intel(company, title)
 
-    strategy = generate_strategy(job, profile, ranked_contacts)
+    strategy = generate_strategy(job, profile, ranked_contacts, company_intel)
 
     final_score = max(0.0, min(1.0, 0.6 * job_fit + 0.4 * contact_score))
     decision = _decision_label(final_score)
+    actionable = job_fit >= MIN_ACTIONABLE_JOB_FIT and bool(reliable_contacts)
+
     action_plan = (
         f"Contact {strategy.get('who_to_contact_first', 'top contact')} first. "
         f"{strategy.get('outreach_angle', 'Use a role-aligned outreach angle.')}"
@@ -55,4 +69,7 @@ def evaluate_job(job_text: str, cv_text: str) -> Dict[str, Any]:
         "contacts": ranked_contacts[:5],
         "decision": decision,
         "action_plan": action_plan,
+        "actionable": actionable,
+        "discard_reason": None,
+        "company_signals": company_intel.get("signals", []),
     }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserInput(BaseModel):
@@ -32,3 +32,6 @@ class FinalOutput(BaseModel):
     contacts: List[Contact]
     decision: str
     action_plan: str
+    actionable: bool
+    discard_reason: Optional[str] = None
+    company_signals: List[str] = Field(default_factory=list)

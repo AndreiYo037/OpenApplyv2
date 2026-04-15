@@ -1,9 +1,17 @@
-# OpenApplyv2 Decision Engine
+# OpenApplyv2 Internship Conversion Engine
 
-Production-oriented single-job decision engine that evaluates:
+OpenApplyv2 is designed as an internship conversion engine for Singapore undergraduates.
+It is not a job browsing tool. It scores whether an opportunity is worth pursuing, identifies who matters,
+and generates context-aware outreach that is ready to send.
 
-1. Job-to-CV match quality
-2. Reachable contact quality (via TinyFish-based discovery)
+## Product Moats
+
+1. **Decision Layer**: Decide who matters, not just show people.
+   - Enforces hard constraints on actionability.
+   - Discards opportunities with weak fit or unreliable contact coverage.
+2. **Personalization Layer**: Generate context-aware outreach.
+   - Combines company signals, contact signals, and user signals.
+   - Localizes company intelligence and contact discovery to Singapore.
 
 ## Input
 
@@ -28,6 +36,9 @@ Production-oriented single-job decision engine that evaluates:
   "job_fit": float,
   "contact_score": float,
   "final_score": float,
+  "actionable": bool,
+  "discard_reason": str | None,
+  "company_signals": [str],
   "contacts": [
     {
       "name": str,
@@ -66,7 +77,8 @@ payload = {
 print(run_decision_engine(payload))
 ```
 
-## TinyFish Integration Note
+## Singapore Localization
 
-`enrichment/contact_scraper.py` contains `_tinyfish_fetch_text(...)` as the integration seam.
-Replace that stub with your TinyFish client call in your runtime environment.
+- Contact discovery uses Singapore-scoped TinyFish search.
+- Company intelligence is generated from Singapore-relevant public signals.
+- Outreach strategy is tuned for Singapore internship context.

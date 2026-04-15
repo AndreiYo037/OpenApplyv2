@@ -10,8 +10,9 @@ from urllib.parse import unquote
 
 def _build_queries(company: str, role: str) -> List[str]:
     return [
-        f"{company} {role} LinkedIn",
-        f"{company} recruiter LinkedIn",
+        f"{company} {role} Singapore LinkedIn",
+        f"{company} recruiter Singapore LinkedIn",
+        f"{company} hiring manager Singapore {role}",
     ]
 
 
@@ -31,7 +32,7 @@ def _tinyfish_fetch_texts(query: str) -> List[str]:
         client = TinyFish(api_key=api_key)
         texts: List[str] = []
         try:
-            search = client.search.query(query=query, language="en")
+            search = client.search.query(query=query, location="Singapore", language="en")
             for result in search.results or []:
                 snippet = " ".join(
                     [str(result.title or "").strip(), str(result.snippet or "").strip(), str(result.url or "").strip()]
