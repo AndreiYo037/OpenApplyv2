@@ -4,7 +4,14 @@ type ScoreCardProps = {
   contactScore: number
 }
 
-const toPercent = (value: number): string => `${Math.round((value || 0) * 100)}%`
+const normalizePercent = (value: number): number => {
+  const safe = Number.isFinite(value) ? value : 0
+  // Support both 0-1 and 0-100 payloads during API transition.
+  if (safe <= 1) return safe * 100
+  return safe
+}
+
+const toPercent = (value: number): string => `${Math.round(normalizePercent(value))}%`
 
 export function ScoreCard({ finalScore, jobFit, contactScore }: ScoreCardProps) {
   return (
@@ -16,11 +23,11 @@ export function ScoreCard({ finalScore, jobFit, contactScore }: ScoreCardProps) 
           <p className="text-2xl font-bold text-indigo-900">{toPercent(finalScore)}</p>
         </div>
         <div className="rounded-lg bg-slate-50 p-3">
-          <p className="text-xs text-slate-700">Job Fit</p>
+          <p className="text-xs text-slate-700">CV Score</p>
           <p className="text-2xl font-bold text-slate-900">{toPercent(jobFit)}</p>
         </div>
         <div className="rounded-lg bg-slate-50 p-3">
-          <p className="text-xs text-slate-700">Contact Score</p>
+          <p className="text-xs text-slate-700">Contact Quality</p>
           <p className="text-2xl font-bold text-slate-900">{toPercent(contactScore)}</p>
         </div>
       </div>
