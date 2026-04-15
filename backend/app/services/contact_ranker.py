@@ -20,7 +20,7 @@ def _fallback_rank(contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return (priority, -float(item.get("confidence", 0.0) or 0.0))
 
     sorted_contacts = sorted(contacts, key=order_key)
-    return sorted_contacts[:5]
+    return sorted_contacts[:10]
 
 
 def rank_contacts(job: Dict[str, Any], contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -36,7 +36,7 @@ Priority:
 3) others
 
 Return STRICT JSON:
-{"top_contacts": [contact_objects_in_best_order_max_5]}
+{"top_contacts": [contact_objects_in_best_order_max_10]}
 """
     try:
         output = run_openai_json(system, str({"job": job, "contacts": contacts}))
@@ -44,6 +44,6 @@ Return STRICT JSON:
         if not isinstance(ranked, list):
             return fallback
         cleaned = [c for c in ranked if isinstance(c, dict)]
-        return cleaned[:5] if cleaned else fallback
+        return cleaned[:10] if cleaned else fallback
     except Exception:
         return fallback
