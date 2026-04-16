@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { evaluateJob } from './api/client'
-import { ContactList, type ContactItem } from './components/ContactList'
+import { evaluateJob, generateMessage } from './api/client'
+import { ContactList, type ContactItem, type ContactMessage } from './components/ContactList'
 import { ScoreCard } from './components/ScoreCard'
 import { StrategyBox } from './components/StrategyBox'
 
@@ -13,6 +13,8 @@ type EvaluationResult = {
   actionable?: boolean
   discard_reason?: string | null
   company_signals?: string[]
+  job_summary?: string
+  required_skills?: string[]
   decision?: string
   contacts: ContactItem[]
   [key: string]: unknown
@@ -23,6 +25,8 @@ function App() {
   const [cvText, setCvText] = useState('')
   const [result, setResult] = useState<EvaluationResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [messages, setMessages] = useState<Record<string, ContactMessage>>({})
+  const [loadingContactId, setLoadingContactId] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const canSubmit = useMemo(() => jobText.trim().length > 0 && cvText.trim().length > 0, [jobText, cvText])
@@ -43,8 +47,41 @@ function App() {
       setErrorMessage(response.error)
     } else {
       setResult(response.data)
+      setMessages({})
     }
     setIsLoading(false)
+  }
+
+  const generateForContact = async (contact: ContactItem, force = false) => {
+    if (!result) return
+    const contactId = contact.id ?? `${contact.name}-${contact.role}`
+    if (!force && messages[contactId]) return
+    setLoadingContactId(contactId)
+    const response = await generateMessage<ContactMessage>({
+      contact_id: contactId,
+      cv: { raw_text: cvText.trim() },
+      job: {
+        title: String((result as { title?: string }).title ?? 'Unknown'),
+        company: String((result as { company?: string }).company ?? 'Unknown'),
+        description: jobText.trim(),
+      },
+      company_intel: {
+        signals: result.company_signals ?? [],
+      },
+      contact: {
+        ...contact,
+        id: contactId,
+      },
+      user_preferences: {
+        tone: 'role_aware',
+      },
+    })
+    if (response.error) {
+      setErrorMessage(response.error)
+    } else if (response.data) {
+      setMessages((prev) => ({ ...prev, [contactId]: response.data as ContactMessage }))
+    }
+    setLoadingContactId(null)
   }
 
   return (
@@ -134,9 +171,40 @@ function App() {
                         <li key={signal}>{signal}</li>
                       ))}
                     </ul>
+                    {result.job_summary && (
+                      <div className="mt-4 rounded-md border border-slate-200 bg-white p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                          Job Description Summary
+                        </p>
+                        <p className="mt-1 text-sm text-slate-700">{result.job_summary}</p>
+                      </div>
+                    )}
+                    {Array.isArray(result.required_skills) && result.required_skills.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                          Skills They Are Looking For
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {result.required_skills.slice(0, 8).map((skill) => (
+                            <span
+                              key={skill}
+                              className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700"
+                            >
+                              {skill}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </section>
                 )}
-                <ContactList contacts={result.contacts ?? []} />
+                <ContactList
+                  contacts={result.contacts ?? []}
+                  messages={messages}
+                  loadingContactId={loadingContactId}
+                  onGenerateMessage={(contact) => generateForContact(contact, false)}
+                  onRegenerateMessage={(contact) => generateForContact(contact, true)}
+                />
                 <StrategyBox
                   actionPlan={result.action_plan ?? 'No action plan returned.'}
                   whoToContactFirst={(result.contacts?.[0]?.name as string) ?? 'No contact recommendation yet'}

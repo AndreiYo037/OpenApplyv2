@@ -13,8 +13,11 @@ class UserInput(BaseModel):
 
 
 class Contact(BaseModel):
+    id: Optional[str] = None
     name: str
     role: Optional[str] = None
+    role_type: Optional[str] = None
+    influence_level: Optional[float] = None
     company: Optional[str] = None
     linkedin_url: Optional[str] = None
     email: Optional[str] = None
@@ -35,3 +38,20 @@ class FinalOutput(BaseModel):
     actionable: bool
     discard_reason: Optional[str] = None
     company_signals: List[str] = Field(default_factory=list)
+    job_summary: str = ""
+    required_skills: List[str] = Field(default_factory=list)
+
+
+class GenerateMessageInput(BaseModel):
+    contact_id: str
+    cv: dict
+    job: dict
+    company_intel: dict
+    contact: Contact
+    user_preferences: dict = Field(default_factory=dict)
+
+
+class GenerateMessageOutput(BaseModel):
+    message: str
+    personalization_points: List[str] = Field(default_factory=list)
+    effectiveness_breakdown: dict = Field(default_factory=dict)
