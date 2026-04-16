@@ -7,26 +7,6 @@ import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
 
-INVALID_NAMES = {
-    "data science",
-    "data scientist",
-    "analytics internship",
-    "machine learning",
-    "careers current",
-    "job application",
-}
-
-INVALID_NAME_TOKENS = {
-    "internship",
-    "careers",
-    "current",
-    "application",
-    "science",
-    "machine",
-    "learning",
-    "analytics",
-}
-
 
 def _build_queries(company: str, role: str) -> List[str]:
     return [
@@ -77,18 +57,7 @@ def _extract_linkedin_url(urls: List[str]) -> Optional[str]:
 
 def _extract_name(text: str) -> Optional[str]:
     match = re.search(r"\b([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,25})\b", text)
-    if not match:
-        return None
-    candidate = match.group(1).strip()
-    lowered = candidate.lower()
-    if lowered in INVALID_NAMES:
-        return None
-    parts = [p for p in candidate.split() if p]
-    if len(parts) < 2 or len(parts) > 4:
-        return None
-    if any(part.lower() in INVALID_NAME_TOKENS for part in parts):
-        return None
-    return candidate
+    return match.group(1) if match else None
 
 
 def _infer_role(text: str, default_role: str) -> str:

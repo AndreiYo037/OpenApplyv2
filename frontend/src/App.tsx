@@ -1,32 +1,21 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { evaluateJob, generateMessage } from './api/client'
-import { ContactList, type ContactItem, type ContactMessage } from './components/ContactList'
+import { evaluateJob } from './api/client'
+import { ContactList, type ContactItem } from './components/ContactList'
 import { ScoreCard } from './components/ScoreCard'
+import { StrategyBox } from './components/StrategyBox'
 
 type EvaluationResult = {
-  title?: string
-  company?: string
   final_score: number
-  cv_score: number
-  contact_quality: number
+  job_fit: number
+  contact_score: number
+  action_plan: string
+  actionable?: boolean
+  discard_reason?: string | null
   company_signals?: string[]
+  decision?: string
   contacts: ContactItem[]
   [key: string]: unknown
-}
-
-const normalizeContacts = (contacts: ContactItem[]): ContactItem[] => {
-  const safe = Array.isArray(contacts) ? contacts : []
-  const filtered = safe.filter((contact) => String(contact.name ?? '').trim().length > 0)
-  const deduped: ContactItem[] = []
-  const seen = new Set<string>()
-  for (const contact of filtered) {
-    const key = `${String(contact.name ?? '').trim().toLowerCase()}::${String(contact.linkedin_url ?? '').trim().toLowerCase()}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    deduped.push(contact)
-  }
-  return deduped.slice(0, 10)
 }
 
 function App() {
@@ -34,12 +23,10 @@ function App() {
   const [cvText, setCvText] = useState('')
   const [result, setResult] = useState<EvaluationResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [messages, setMessages] = useState<Record<string, ContactMessage>>({})
-  const [loadingContactId, setLoadingContactId] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const canSubmit = useMemo(() => jobText.trim().length > 0 && cvText.trim().length > 0, [jobText, cvText])
-  const visibleContacts = useMemo(() => normalizeContacts(result?.contacts ?? []), [result?.contacts])
+
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setErrorMessage(null)
@@ -56,38 +43,8 @@ function App() {
       setErrorMessage(response.error)
     } else {
       setResult(response.data)
-      setMessages({})
     }
     setIsLoading(false)
-  }
-
-  const generateForContact = async (contact: ContactItem, force = false) => {
-    if (!result) return
-    if (!force && messages[contact.id]) return
-
-    setLoadingContactId(contact.id)
-    const response = await generateMessage<ContactMessage>({
-      contact_id: contact.id,
-      cv: { raw_text: cvText.trim() },
-      job: {
-        title: result.title ?? 'Unknown',
-        company: result.company ?? 'Unknown',
-        description: jobText.trim(),
-      },
-      company_intel: {
-        signals: result.company_signals ?? [],
-      },
-      contact,
-      user_preferences: {
-        tone: 'confident_concise',
-      },
-    })
-    if (response.error) {
-      setErrorMessage(response.error)
-    } else if (response.data) {
-      setMessages((prev) => ({ ...prev, [contact.id]: response.data as ContactMessage }))
-    }
-    setLoadingContactId(null)
   }
 
   return (
@@ -151,23 +108,21 @@ function App() {
               </p>
             ) : (
               <div className="space-y-4">
-                <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-700">
-                    Evaluation Context
-                  </h3>
-                  <p className="text-sm text-slate-700">
-                    <span className="font-medium text-slate-900">{result.title ?? 'Role'}</span>
-                    {' at '}
-                    <span className="font-medium text-slate-900">{result.company ?? 'Company'}</span>
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Ranked contacts returned: <span className="font-medium text-slate-800">{visibleContacts.length}</span>
-                  </p>
-                </section>
+                <div
+                  className={`rounded-lg border p-3 text-sm ${
+                    result.actionable === false
+                      ? 'border-amber-300 bg-amber-50 text-amber-900'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                  }`}
+                >
+                  {result.actionable === false
+                    ? 'Low-confidence opportunity: weak fit or low reliability contacts. Review score and outreach carefully.'
+                    : 'Actionable opportunity: strong enough fit with reliable contact coverage.'}
+                </div>
                 <ScoreCard
                   finalScore={result.final_score}
-                  jobFit={result.cv_score}
-                  contactScore={result.contact_quality}
+                  jobFit={result.job_fit}
+                  contactScore={result.contact_score}
                 />
                 {Array.isArray(result.company_signals) && result.company_signals.length > 0 && (
                   <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -181,12 +136,10 @@ function App() {
                     </ul>
                   </section>
                 )}
-                <ContactList
-                  contacts={visibleContacts}
-                  messages={messages}
-                  loadingContactId={loadingContactId}
-                  onGenerateMessage={(contact) => generateForContact(contact, false)}
-                  onRegenerateMessage={(contact) => generateForContact(contact, true)}
+                <ContactList contacts={result.contacts ?? []} />
+                <StrategyBox
+                  actionPlan={result.action_plan ?? 'No action plan returned.'}
+                  whoToContactFirst={(result.contacts?.[0]?.name as string) ?? 'No contact recommendation yet'}
                 />
               </div>
             )}
